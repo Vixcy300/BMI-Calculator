@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upgraded Lifestyle - {% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+</head>
+<body>
+    <nav class="premium-nav">
+        <div class="nav-brand">Upgraded Lifestyle</div>
+        <div class="nav-links">
+            <a href="{{ url_for('profile') }}" class="nav-link">Profile</a>
+            <a href="{{ url_for('bmi_calculator') }}" class="nav-link">BMI Calculator</a>
+            <a href="{{ url_for('health_insights') }}" class="nav-link">Health Insights</a>
+            <a href="{{ url_for('photo_analysis') }}" class="nav-link">Photo Analysis</a>
+            <a href="{{ url_for('reports') }}" class="nav-link">Reports</a>
+            <a href="{{ url_for('routines') }}" class="nav-link">Routines</a>
+        </div>
+        <div class="nav-user">
+            <span id="username"></span>
+            <button onclick="logout()" class="btn-logout">Logout</button>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>
