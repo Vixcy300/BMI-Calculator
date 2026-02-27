@@ -74,6 +74,35 @@ function formatDate(dateString) {
 }
 
 // ========================================
+// Dark Mode Toggle
+// ========================================
+
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark-mode');
+        updateDarkModeButtons(true);
+    }
+}
+
+function toggleDarkMode() {
+    document.body.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    updateDarkModeButtons(isDark);
+}
+
+function updateDarkModeButtons(isDark) {
+    const icon = isDark ? '☀️' : '🌙';
+    const btn1 = document.getElementById('darkModeBtn1');
+    const btn2 = document.getElementById('darkModeBtn2');
+    if (btn1) btn1.textContent = icon;
+    if (btn2) btn2.textContent = icon;
+}
+
+initTheme();
+
+// ========================================
 // Authentication Functions
 // ========================================
 
@@ -255,7 +284,7 @@ async function logout() {
  */
 async function checkAuth() {
     try {
-    const response = await fetch(`${API_BASE}/api/check-auth`, { credentials: 'include' });
+        const response = await fetch(`${API_BASE}/api/check-auth`, { credentials: 'include' });
         const data = await response.json();
 
         if (data.authenticated) {
@@ -301,7 +330,7 @@ function showLanding() {
 async function initDashboard() {
     try {
         // Load user profile
-    const profileResponse = await fetch(`${API_BASE}/api/user-profile`, { credentials: 'include' });
+        const profileResponse = await fetch(`${API_BASE}/api/user-profile`, { credentials: 'include' });
         if (profileResponse.ok) {
             const profileData = await profileResponse.json();
             document.getElementById('profileUsername').textContent = profileData.username || '';
@@ -325,7 +354,7 @@ async function initDashboard() {
  */
 async function handleBMISubmit(event) {
     event.preventDefault();
-    
+
     const name = document.getElementById('bmiName').value.trim();
     const age = parseInt(document.getElementById('bmiAge').value);
     const sex = document.getElementById('bmiSex').value;
@@ -393,13 +422,21 @@ function displayBMIResult(data) {
         bmiIcon.textContent = data.icon || '📊';
         bmiValue.textContent = data.bmi || '0';
         bmiCategory.textContent = data.category || 'Normal';
-        
+
         // Health advice based on category
         const advice = getBMIAdvice(data.category);
         bmiAdvice.textContent = advice;
-        
+
+        // Update SVG color based on category
+        const silhouette = document.querySelector('.human-silhouette');
+        if (silhouette) {
+            silhouette.classList.remove('silhouette-underweight', 'silhouette-normal', 'silhouette-overweight', 'silhouette-obese');
+            const categoryClass = 'silhouette-' + data.category.toLowerCase();
+            silhouette.classList.add(categoryClass);
+        }
+
         resultCard.style.display = 'block';
-        
+
         // Smooth scroll to result
         resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
@@ -536,7 +573,8 @@ async function loadChatHistory() {
         data.messages.forEach(m => {
             const div = document.createElement('div');
             div.className = m.role === 'user' ? 'message user-message' : 'message bot-message';
-            div.innerHTML = `<div class="message-content">${escapeHtml(m.message)}</div>`;
+            const content = m.role === 'user' ? escapeHtml(m.message) : formatBotMessage(m.message);
+            div.innerHTML = `<div class="message-content">${content}</div>`;
             chatMessages.appendChild(div);
         });
         scrollToBottom();
@@ -544,6 +582,13 @@ async function loadChatHistory() {
         console.error('Load chat history error:', e);
         resetChatToWelcome();
     }
+}
+
+function formatBotMessage(text) {
+    if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+        return DOMPurify.sanitize(marked.parse(text));
+    }
+    return escapeHtml(text).replace(/\n/g, '<br>');
 }
 
 /**
@@ -573,7 +618,7 @@ function displayAuroraMessage(text) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message bot-message';
     messageDiv.innerHTML = `
-        <div class="message-content">${escapeHtml(text)}</div>
+        <div class="message-content">${formatBotMessage(text)}</div>
     `;
 
     chatMessages.appendChild(messageDiv);
@@ -599,7 +644,7 @@ function scrollToBottom() {
  */
 async function loadBMIHistory() {
     try {
-    const response = await fetch(`${API_BASE}/api/bmi-history`, { credentials: 'include' });
+        const response = await fetch(`${API_BASE}/api/bmi-history`, { credentials: 'include' });
         const data = await response.json();
 
         if (data.records) {
@@ -645,6 +690,86 @@ function displayHistory(records) {
             </tr>
         `;
     }).join('');
+
+    // Update Chart
+    renderBMIChart(records);
+}
+
+// Global variable for chart instance
+let bmiChartInstance = null;
+
+/**
+ * Render or update the BMI history chart
+ */
+function renderBMIChart(records) {
+    if (typeof Chart === 'undefined') return;
+
+    const chartContainer = document.getElementById('bmiChartContainer');
+    const ctx = document.getElementById('bmiChart');
+    if (!ctx || !chartContainer) return;
+
+    if (records.length < 2) {
+        chartContainer.style.display = 'none';
+        return;
+    }
+
+    chartContainer.style.display = 'block';
+
+    // Sort chronologically for the chart (oldest to newest)
+    const sortedRecords = [...records].reverse();
+    const labels = sortedRecords.map(r => new Date(r.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' }));
+    const dataPoints = sortedRecords.map(r => r.bmi);
+
+    const data = {
+        labels: labels,
+        datasets: [{
+            label: 'BMI Trend',
+            data: dataPoints,
+            borderColor: '#ff6b9d',
+            backgroundColor: 'rgba(255, 107, 157, 0.2)',
+            borderWidth: 3,
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: '#ff8e53',
+            pointRadius: 5,
+            pointHoverRadius: 7
+        }]
+    };
+
+    const config = {
+        type: 'line',
+        data: data,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            return `BMI: ${context.parsed.y}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    suggestedMin: Math.min(...dataPoints) - 2,
+                    suggestedMax: Math.max(...dataPoints) + 2
+                }
+            }
+        }
+    };
+
+    if (bmiChartInstance) {
+        bmiChartInstance.destroy();
+    }
+
+    bmiChartInstance = new Chart(ctx, config);
 }
 
 /**
@@ -695,14 +820,14 @@ async function deleteRecord(id) {
 // ========================================
 
 // Wait for DOM to load
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // Check authentication on page load
     checkAuth();
 
     // Chat input Enter key
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
-        chatInput.addEventListener('keypress', function(e) {
+        chatInput.addEventListener('keypress', function (e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 sendMessage();
@@ -711,7 +836,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Close modal on Escape key
-    document.addEventListener('keydown', function(e) {
+    document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') {
             const modal = document.getElementById('authModal');
             if (modal && modal.style.display !== 'none') {
@@ -723,7 +848,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Close modal when clicking outside
     const modal = document.getElementById('authModal');
     if (modal) {
-        modal.addEventListener('click', function(e) {
+        modal.addEventListener('click', function (e) {
             if (e.target === modal || e.target.classList.contains('modal-overlay')) {
                 closeAuth();
             }
@@ -732,7 +857,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Tooltip behavior for info icons (mobile-friendly)
     document.querySelectorAll('.info-icon').forEach(btn => {
-        btn.addEventListener('click', function(e) {
+        btn.addEventListener('click', function (e) {
             e.stopPropagation();
             // Toggle the next tooltip sibling
             const tooltip = btn.parentElement.querySelector('.tooltip');
@@ -746,7 +871,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Close tooltips when tapping/clicking elsewhere
-    document.addEventListener('click', function() {
+    document.addEventListener('click', function () {
         document.querySelectorAll('.tooltip').forEach(t => t.classList.remove('show'));
     });
 });
@@ -760,16 +885,16 @@ async function askAuroraAdvice() {
     const bmiCategory = document.getElementById('bmiCategory')?.textContent;
     const goal = document.getElementById('bmiGoal')?.value;
     const activity = document.getElementById('bmiActivity')?.value;
-    
+
     if (!bmiValue || !bmiCategory) {
         alert('Please calculate your BMI first.');
         return;
     }
-    
+
     try {
         // First, show a loading message in chat
         displayAuroraMessage("Analyzing your BMI and preparing personalized suggestions...");
-        
+
         const response = await fetch(`${API_BASE}/api/ai-bmi-suggestions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -781,13 +906,13 @@ async function askAuroraAdvice() {
                 activity_level: activity
             })
         });
-        
+
         if (!response.ok) {
             throw new Error('Failed to get AI suggestions');
         }
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
             // Add Aurora's response to chat
             displayAuroraMessage(
@@ -797,7 +922,7 @@ async function askAuroraAdvice() {
                 `• Activity Level: ${activity || 'Not specified'}\n\n` +
                 `Here are my suggestions:\n\n${data.suggestions}`
             );
-            
+
             // Scroll to chat section
             document.getElementById('chatSection').scrollIntoView({
                 behavior: 'smooth',
@@ -816,7 +941,7 @@ async function askAuroraAdvice() {
 // Animation on Page Load (optional GSAP)
 // ========================================
 
-window.addEventListener('load', function() {
+window.addEventListener('load', function () {
     // Animate hero elements if GSAP is loaded
     if (typeof gsap !== 'undefined') {
         const heroTitle = document.querySelector('.hero-title');
@@ -864,7 +989,7 @@ let uploadedImageFile = null;
 function handleImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
+
     // Verify file type
     const fileType = file.type.toLowerCase();
     const allowedTypes = ['image/png', 'image/jpg', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -872,26 +997,26 @@ function handleImageUpload(event) {
         alert('Please select a valid image file (PNG, JPG, JPEG, GIF, WEBP)');
         return;
     }
-    
+
     // Verify file size (16MB max)
     const maxSize = 16 * 1024 * 1024; // 16MB in bytes
     if (file.size > maxSize) {
         alert('File is too large. Maximum size is 16MB');
         return;
     }
-    
+
     // Save file for upload
     uploadedImageFile = file;
-    
+
     // Show preview
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = function (e) {
         document.getElementById('previewImg').src = e.target.result;
         document.getElementById('imagePreview').style.display = 'block';
         document.getElementById('uploadArea').style.display = 'none';
         document.getElementById('analyzeBtn').style.display = 'block';
     };
-    reader.onerror = function() {
+    reader.onerror = function () {
         alert('Error reading file. Please try again.');
     };
     reader.readAsDataURL(file);
@@ -908,28 +1033,28 @@ async function analyzeUploadedImage() {
         alert('Please select an image first');
         return;
     }
-    
+
     const analyzeBtn = document.getElementById('analyzeBtn');
     analyzeBtn.disabled = true;
     analyzeBtn.textContent = 'Analyzing...';
-    
+
     try {
         const formData = new FormData();
         formData.append('image', uploadedImageFile);
-        
+
         // Make sure to include credentials for session
         const response = await fetch(`${API_BASE}/api/analyze-image`, {
             method: 'POST',
             body: formData,
             credentials: 'include'
         });
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
             displayAnalysisResult(data);
             await loadAnalyzedReports();
@@ -949,7 +1074,7 @@ async function analyzeImageInChat(file) {
     try {
         displayUserMessage(`📷 Uploaded image: ${file.name}`);
         // Save user message (best-effort)
-        try { await saveChatMessage('user', `📷 ${file.name}`); } catch (e) {}
+        try { await saveChatMessage('user', `📷 ${file.name}`); } catch (e) { }
 
         const formData = new FormData();
         formData.append('image', file);
@@ -962,7 +1087,7 @@ async function analyzeImageInChat(file) {
         if (data.success) {
             const botText = `I've analyzed your report! 📋 Type: ${data.report_type}\n\n📊 Overview: ${data.overview}\n\n💡 Suggestions: ${data.suggestions}`;
             displayAuroraMessage(botText);
-            try { await saveChatMessage('bot', botText); } catch (e) {}
+            try { await saveChatMessage('bot', botText); } catch (e) { }
             await loadAnalyzedReports();
         } else {
             displayAuroraMessage(`Sorry, I had trouble analyzing that image. ${data.error || 'Please try again.'}`);
@@ -1000,13 +1125,13 @@ async function clearChat() {
 
 function displayAnalysisResult(data) {
     const resultDiv = document.getElementById('analysisResult');
-    resultDiv.innerHTML = `<div class="analysis-card"><h3>📋 Analysis Complete!</h3><p><strong>Report Type:</strong> ${escapeHtml(data.report_type)}</p><div class="analysis-section"><h4>📊 Overview:</h4><p>${escapeHtml(data.overview || 'No overview')}</p></div><div class="analysis-section"><h4>💡 Suggestions:</h4><p>${escapeHtml(data.suggestions || 'No suggestions')}</p></div><div class="analysis-actions"><button class="btn btn-gradient" onclick="generateReportPDF(null, ${data.report_id})">📥 Download PDF</button></div></div>`;
+    resultDiv.innerHTML = `<div class="analysis-card"><h3>📋 Analysis Complete!</h3><p><strong>Report Type:</strong> ${escapeHtml(data.report_type)}</p><div class="analysis-section"><h4>📊 Overview:</h4><p>${escapeHtml(data.overview || 'No overview')}</p></div><div class="analysis-section"><h4>💡 Suggestions:</h4><p>${escapeHtml(data.suggestions || 'No suggestions')}</p></div><div class="analysis-actions"><button class="btn btn-gradient" onclick="generateReportPDF(null, '${data.report_id || data.$id}')">📥 Download PDF</button></div></div>`;
     resultDiv.style.display = 'block';
 }
 
 async function loadAnalyzedReports() {
     try {
-    const response = await fetch(`${API_BASE}/api/analyzed-reports`, { credentials: 'include' });
+        const response = await fetch(`${API_BASE}/api/analyzed-reports`, { credentials: 'include' });
         const data = await response.json();
         if (data.reports) displayAnalyzedReports(data.reports);
     } catch (error) {
@@ -1032,8 +1157,8 @@ function displayAnalyzedReports(reports) {
                 ${report.suggestions ? `<p><strong>Suggestions:</strong> ${escapeHtml(report.suggestions)}</p>` : ''}
             </div>
             <div class="report-actions">
-                <button class="btn btn-primary" onclick="generateReportPDF(null, ${report.id})">📥 Download PDF</button>
-                <button class="btn btn-danger" onclick="deleteAnalyzedReport(${report.id})">🗑️ Delete</button>
+                <button class="btn btn-primary" onclick="generateReportPDF(null, '${report.$id || report.id}')">📥 Download PDF</button>
+                <button class="btn btn-danger" onclick="deleteAnalyzedReport('${report.$id || report.id}')">🗑️ Delete</button>
             </div>
         </div>
     `).join('');
@@ -1069,9 +1194,9 @@ async function generateReportPDF(bmiRecordId = null, reportId = null) {
     try {
         const response = await fetch(`${API_BASE}/api/generate-report`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({bmi_record_id: bmiRecordId, report_id: reportId})
+            body: JSON.stringify({ bmi_record_id: bmiRecordId, report_id: reportId })
         });
         if (response.ok) {
             const blob = await response.blob();
@@ -1099,7 +1224,7 @@ async function generateAllReportsPDF() {
 
 async function loadProgressInsights() {
     try {
-    const response = await fetch(`${API_BASE}/api/progress-insights`, { credentials: 'include' });
+        const response = await fetch(`${API_BASE}/api/progress-insights`, { credentials: 'include' });
         const data = await response.json();
         if (data.insights) displayInsights(data.insights);
     } catch (error) {
@@ -1180,7 +1305,13 @@ async function generateRoutine() {
 
         if (response.ok && data.success) {
             const routineText = data.routine || data.text || data.generated_text || '';
-            routineResult.innerHTML = `<div class="routine-output"><pre>${escapeHtml(routineText)}</pre></div>`;
+            let formattedHtml = routineText;
+            if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+                formattedHtml = DOMPurify.sanitize(marked.parse(routineText));
+            } else {
+                formattedHtml = escapeHtml(routineText).replace(/\n/g, '<br>');
+            }
+            routineResult.innerHTML = `<div class="markdown-body">${formattedHtml}</div>`;
         } else {
             routineResult.innerHTML = `<p class="error-message">${escapeHtml(data.error || data.message || 'Failed to generate routine')}</p>`;
         }
@@ -1225,7 +1356,13 @@ async function generateDietPlan() {
         const data = await response.json();
         if (response.ok && data.success) {
             const dietText = data.diet_plan || data.text || data.generated_text || '';
-            dietResult.innerHTML = `<div class="diet-output"><pre>${escapeHtml(dietText)}</pre></div>`;
+            let formattedHtml = dietText;
+            if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+                formattedHtml = DOMPurify.sanitize(marked.parse(dietText));
+            } else {
+                formattedHtml = escapeHtml(dietText).replace(/\n/g, '<br>');
+            }
+            dietResult.innerHTML = `<div class="markdown-body">${formattedHtml}</div>`;
         } else {
             dietResult.innerHTML = `<p class="error-message">${escapeHtml(data.error || data.message || 'Failed to generate diet plan')}</p>`;
         }
@@ -1242,12 +1379,14 @@ async function generateDietPlan() {
 
 // Enhanced dashboard initialization
 const originalInitDashboard = initDashboard;
-initDashboard = async function() {
+initDashboard = async function () {
     await originalInitDashboard();
     await loadProgressInsights();
     await loadAnalyzedReports();
     // Load per-user chat history (if any)
     await loadChatHistory();
+    // Load Water Tracker
+    await loadWaterLogs();
 };
 
 // ========================================
@@ -1275,7 +1414,7 @@ async function sendEmailReports() {
     // UI feedback
     statusEl.innerHTML = '<p>Sending report... please wait.</p>';
     try {
-        const response = await fetch(`${API_BASE}/email-reports`, {
+        const response = await fetch(`${API_BASE}/api/send-report-email`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -1292,5 +1431,99 @@ async function sendEmailReports() {
         console.error('Send email reports error:', error);
         statusEl.innerHTML = '<p class="error-message">Error sending report. Please try again later.</p>';
     }
+}
+
+// ========================================
+// Water Intake Tracker (NEW FEATURE)
+// ========================================
+
+const DAILY_WATER_GOAL = 2000; // ml
+
+async function loadWaterLogs() {
+    try {
+        const response = await fetch(`${API_BASE}/api/water-logs`, { credentials: 'include' });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                updateWaterUI(data.total_ml);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading water logs:', error);
+    }
+}
+
+function updateWaterUI(currentAmount) {
+    const totalEl = document.getElementById('waterTotal');
+    const goalEl = document.getElementById('waterGoal');
+    const barFill = document.getElementById('waterBarFill');
+
+    if (!totalEl || !barFill) return;
+
+    totalEl.textContent = currentAmount;
+    goalEl.textContent = DAILY_WATER_GOAL;
+
+    // Calculate percentage (cap at 100%)
+    let percentage = (currentAmount / DAILY_WATER_GOAL) * 100;
+    if (percentage > 100) percentage = 100;
+
+    barFill.style.width = `${percentage}%`;
+
+    // Change color if goal reached
+    if (percentage >= 100) {
+        barFill.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
+        barFill.style.boxShadow = '0 0 10px rgba(46, 204, 113, 0.5)';
+    } else {
+        barFill.style.background = 'linear-gradient(135deg, #3498db, #2980b9)';
+        barFill.style.boxShadow = '0 0 10px rgba(52, 152, 219, 0.5)';
+    }
+}
+
+async function addWater(amount) {
+    if (!amount || amount <= 0) return;
+
+    // Optimistic UI update
+    const totalEl = document.getElementById('waterTotal');
+    const currentTotal = parseInt(totalEl.textContent || 0);
+    updateWaterUI(currentTotal + amount);
+
+    try {
+        const response = await fetch(`${API_BASE}/api/water-logs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ amount_ml: amount })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            // Re-fetch to ensure sync
+            await loadWaterLogs();
+            displayAuroraMessage(`🌊 Gulp gulp! Logged ${amount}ml of water into your tracker. Keep hydrating!`);
+        } else {
+            console.error('Failed to log water:', data.error);
+            // Revert on failure
+            await loadWaterLogs();
+            alert('Failed to log water intake.');
+        }
+    } catch (error) {
+        console.error('Error logging water:', error);
+        await loadWaterLogs();
+        alert('Network error. Failed to log water intake.');
+    }
+}
+
+function addCustomWater() {
+    const input = document.getElementById('customWaterAmount');
+    if (!input) return;
+
+    const amount = parseInt(input.value);
+    if (isNaN(amount) || amount <= 0) {
+        alert('Please enter a valid amount greater than 0.');
+        return;
+    }
+
+    addWater(amount);
+    input.value = ''; // clear input
 }
 

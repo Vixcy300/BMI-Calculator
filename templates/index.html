@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,7 +8,11 @@
     <title>Upgraded Lifestyle - BMI & Wellness Platform</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 </head>
+
 <body>
     <!-- Landing Page -->
     <div id="landingPage">
@@ -22,6 +27,8 @@
                     <a href="#testimonials" class="nav-link">Testimonials</a>
                 </div>
                 <div class="nav-actions">
+                    <button class="btn btn-outline" onclick="toggleDarkMode()" id="darkModeBtn1"
+                        title="Toggle Dark Mode">🌙</button>
                     <button class="btn btn-outline" onclick="openAuth('login')">Login</button>
                     <button class="btn btn-primary" onclick="openAuth('signup')">Sign Up</button>
                 </div>
@@ -37,7 +44,7 @@
                         One Calculation at a Time
                     </h1>
                     <p class="hero-subtitle">
-                        Track your BMI, get personalized wellness advice, and chat with Aurora AI - 
+                        Track your BMI, get personalized wellness advice, and chat with Aurora AI -
                         your friendly health assistant.
                     </p>
                     <button class="btn btn-large btn-gradient" onclick="openAuth('signup')">
@@ -97,21 +104,24 @@
                     <div class="testimonial-card">
                         <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
                         <p class="testimonial-text">
-                            "Upgraded Lifestyle helped me track my fitness journey. The BMI calculator is accurate and Aurora AI provides great advice!"
+                            "Upgraded Lifestyle helped me track my fitness journey. The BMI calculator is accurate and
+                            Aurora AI provides great advice!"
                         </p>
                         <p class="testimonial-author">- Avinash.E.</p>
                     </div>
                     <div class="testimonial-card">
                         <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
                         <p class="testimonial-text">
-                            "Love the clean interface and the Aurora AI. It's like having a personal health coach available 24/7!"
+                            "Love the clean interface and the Aurora AI. It's like having a personal health coach
+                            available 24/7!"
                         </p>
                         <p class="testimonial-author">- David.F.</p>
                     </div>
                     <div class="testimonial-card">
                         <div class="testimonial-stars">⭐⭐⭐</div>
                         <p class="testimonial-text">
-                            "All though i was impressed by the app i was nice but it was not that much efficient developer's need to focus on the efficient part!"
+                            "All though i was impressed by the app i was nice but it was not that much efficient
+                            developer's need to focus on the efficient part!"
                         </p>
                         <p class="testimonial-author">- Perplexity.</p>
                     </div>
@@ -125,9 +135,11 @@
                 <p>&copy; 2025 Upgraded Lifestyle</p>
                 <p class="capstone-credit">Capstone Project by <strong>Vignesh</strong>, SIMATS Engineering Student</p>
                 <p class="footer-note">AI-Powered BMI Calculator & Wellness Platform with Image Analysis</p>
-                <p class="page-disclaimer">Aurora provides general wellness information but does not replace medical advice.
+                <p class="page-disclaimer">Aurora provides general wellness information but does not replace medical
+                    advice.
                     <button type="button" class="info-icon small" aria-label="More info">ℹ️</button>
-                    <span class="tooltip">Always consult your doctor or a qualified healthcare professional before starting any new diet, exercise program, or treatment.</span>
+                    <span class="tooltip">Always consult your doctor or a qualified healthcare professional before
+                        starting any new diet, exercise program, or treatment.</span>
                 </p>
             </div>
         </footer>
@@ -138,7 +150,7 @@
         <div class="modal-overlay" onclick="closeAuth()"></div>
         <div class="modal-content">
             <button class="modal-close" onclick="closeAuth()">&times;</button>
-            
+
             <div class="auth-tabs">
                 <button class="auth-tab active" onclick="switchAuthTab('login')" id="loginTab">Login</button>
                 <button class="auth-tab" onclick="switchAuthTab('signup')" id="signupTab">Sign Up</button>
@@ -159,16 +171,19 @@
             </form>
 
             <!-- Health disclaimer for login page (styled via CSS) -->
-            <p class="auth-disclaimer">Disclaimer: Aurora provides general wellness information and suggestions but is not a substitute for professional medical advice.
+            <p class="auth-disclaimer">Disclaimer: Aurora provides general wellness information and suggestions but is
+                not a substitute for professional medical advice.
                 <button type="button" class="info-icon" aria-label="Disclaimer info">ℹ️</button>
-                <span class="tooltip" role="tooltip">Always consult your doctor or a qualified healthcare professional before starting any new diet, exercise program, or treatment.</span>
+                <span class="tooltip" role="tooltip">Always consult your doctor or a qualified healthcare professional
+                    before starting any new diet, exercise program, or treatment.</span>
             </p>
 
             <!-- Signup Form -->
             <form id="signupForm" class="auth-form" style="display: none;" onsubmit="handleSignup(event)">
                 <div class="form-group">
                     <label for="signupUsername">Username</label>
-                    <input type="text" id="signupUsername" name="username" required autocomplete="username" minlength="3">
+                    <input type="text" id="signupUsername" name="username" required autocomplete="username"
+                        minlength="3">
                 </div>
                 <div class="form-group">
                     <label for="signupEmail">Email</label>
@@ -176,7 +191,8 @@
                 </div>
                 <div class="form-group">
                     <label for="signupPassword">Password</label>
-                    <input type="password" id="signupPassword" name="password" required autocomplete="new-password" minlength="6">
+                    <input type="password" id="signupPassword" name="password" required autocomplete="new-password"
+                        minlength="6">
                 </div>
                 <button type="submit" class="btn btn-primary btn-block">Sign Up</button>
                 <div id="signupError" class="error-message"></div>
@@ -204,6 +220,8 @@
                     <a href="#emailReportSection" class="nav-link">Email Reports</a>
                 </div>
                 <div class="nav-user-info">
+                    <button class="btn btn-outline" onclick="toggleDarkMode()" id="darkModeBtn2"
+                        style="border: none; padding: 0.5rem;" title="Toggle Dark Mode">🌙</button>
                     <span id="userGreeting">Hello, <span id="usernameDisplay"></span></span>
                     <button class="btn btn-outline" onclick="logout()">Logout</button>
                 </div>
@@ -240,7 +258,8 @@
                             </div>
                             <div class="form-group">
                                 <label for="bmiAge">Age</label>
-                                <input type="number" id="bmiAge" name="age" required min="13" max="120" placeholder="Age">
+                                <input type="number" id="bmiAge" name="age" required min="13" max="120"
+                                    placeholder="Age">
                             </div>
                         </div>
                         <div class="form-row">
@@ -255,11 +274,13 @@
                             </div>
                             <div class="form-group">
                                 <label for="bmiHeight">Height (cm)</label>
-                                <input type="number" id="bmiHeight" name="height" required min="100" max="300" step="0.1" placeholder="Height in cm">
+                                <input type="number" id="bmiHeight" name="height" required min="100" max="300"
+                                    step="0.1" placeholder="Height in cm">
                             </div>
                             <div class="form-group">
                                 <label for="bmiWeight">Weight (kg)</label>
-                                <input type="number" id="bmiWeight" name="weight" required min="20" max="500" step="0.1" placeholder="Weight in kg">
+                                <input type="number" id="bmiWeight" name="weight" required min="20" max="500" step="0.1"
+                                    placeholder="Weight in kg">
                             </div>
                         </div>
                         <div class="form-row">
@@ -286,16 +307,26 @@
                         </div>
                         <div class="bmi-buttons">
                             <button type="submit" class="btn btn-gradient">Calculate BMI</button>
-                            <button type="button" class="btn btn-primary" onclick="askAuroraAdvice()">Get Aurora's Advice</button>
+                            <button type="button" class="btn btn-primary" onclick="askAuroraAdvice()">Get Aurora's
+                                Advice</button>
                         </div>
                     </form>
 
                     <!-- BMI Result Card -->
                     <div id="resultCard" class="bmi-result-card" style="display: none;">
                         <div class="bmi-result-content">
-                            <div class="bmi-circle">
-                                <div class="bmi-icon" id="bmiIcon">📊</div>
-                                <div class="bmi-value" id="bmiValue">0</div>
+                            <div class="bmi-visualization-container">
+                                <!-- Human Silhouette SVG -->
+                                <svg class="human-silhouette" viewBox="0 0 100 200" xmlns="http://www.w3.org/2000/svg">
+                                    <circle class="sil-head" cx="50" cy="25" r="15" />
+                                    <path class="sil-body"
+                                        d="M 30,50 L 70,50 C 75,50 80,60 80,75 L 80,110 C 80,120 70,125 65,125 L 65,185 C 65,195 55,195 55,185 L 55,130 L 45,130 L 45,185 C 45,195 35,195 35,185 L 35,125 C 30,125 20,120 20,110 L 20,75 C 20,60 25,50 30,50 Z" />
+                                </svg>
+
+                                <div class="bmi-circle">
+                                    <div class="bmi-icon" id="bmiIcon">📊</div>
+                                    <div class="bmi-value" id="bmiValue">0</div>
+                                </div>
                             </div>
                             <div class="bmi-category" id="bmiCategory">Normal</div>
                             <p class="bmi-advice" id="bmiAdvice">
@@ -333,7 +364,8 @@
                 <h2 class="section-title">📷 AI Photo Analysis - Upload BMI Report</h2>
                 <div class="photo-upload-container">
                     <div class="upload-area" id="uploadArea">
-                        <input type="file" id="imageUpload" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
+                        <input type="file" id="imageUpload" accept="image/*" style="display: none;"
+                            onchange="handleImageUpload(event)">
                         <div class="upload-content" onclick="document.getElementById('imageUpload').click()">
                             <div class="upload-icon">📤</div>
                             <p>Click to upload BMI report image</p>
@@ -342,7 +374,8 @@
                     </div>
                     <div id="imagePreview" class="image-preview" style="display: none;">
                         <img id="previewImg" src="" alt="Preview">
-                        <button class="btn btn-primary" onclick="analyzeUploadedImage()" id="analyzeBtn">Analyze with AI</button>
+                        <button class="btn btn-primary" onclick="analyzeUploadedImage()" id="analyzeBtn">Analyze with
+                            AI</button>
                     </div>
                     <div id="analysisResult" class="analysis-result" style="display: none;"></div>
                 </div>
@@ -363,17 +396,23 @@
                     <div class="chat-messages" id="chatMessages">
                         <div class="message bot-message">
                             <div class="message-content">
-                                Hello! I'm Aurora, your wellness assistant. Ask me anything about BMI, health, fitness, nutrition, or wellness! 😊<br><br>
-                                <strong>New:</strong> You can now upload BMI report images above and I'll analyze them for you!
+                                Hello! I'm Aurora, your wellness assistant. Ask me anything about BMI, health, fitness,
+                                nutrition, or wellness! 😊<br><br>
+                                <strong>New:</strong> You can now upload BMI report images above and I'll analyze them
+                                for you!
                             </div>
                         </div>
                     </div>
                     <div class="chat-input-container">
-                        <input type="file" id="chatImageUpload" accept="image/*" style="display: none;" onchange="handleChatImageUpload(event)">
-                        <button class="btn btn-outline" onclick="document.getElementById('chatImageUpload').click()" title="Upload image">📷</button>
-                        <input type="text" id="chatInput" class="chat-input" placeholder="Type your message..." autocomplete="off">
+                        <input type="file" id="chatImageUpload" accept="image/*" style="display: none;"
+                            onchange="handleChatImageUpload(event)">
+                        <button class="btn btn-outline" onclick="document.getElementById('chatImageUpload').click()"
+                            title="Upload image">📷</button>
+                        <input type="text" id="chatInput" class="chat-input" placeholder="Type your message..."
+                            autocomplete="off">
                         <button class="btn btn-gradient" onclick="sendMessage()" id="sendButton">Send</button>
-                        <button type="button" class="btn btn-outline" onclick="clearChat()" id="clearChatButton" title="Clear chat history">Clear Chat</button>
+                        <button type="button" class="btn btn-outline" onclick="clearChat()" id="clearChatButton"
+                            title="Clear chat history">Clear Chat</button>
                     </div>
                 </div>
             </section>
@@ -382,9 +421,18 @@
             <section id="historySection" class="dashboard-section">
                 <h2 class="section-title">📊 BMI History</h2>
                 <div class="history-container">
-                    <div class="history-actions">
-                        <button class="btn btn-gradient" onclick="generateAllReportsPDF()">📥 Download All as PDF</button>
+                    <div class="history-actions" style="margin-bottom: 1.5rem;">
+                        <button class="btn btn-gradient" onclick="generateAllReportsPDF()">📥 Download All as
+                            PDF</button>
                     </div>
+
+                    <!-- ChartJS Container -->
+                    <div class="chart-container"
+                        style="position: relative; height:300px; width:100%; margin-bottom: 2rem; display: none;"
+                        id="bmiChartContainer">
+                        <canvas id="bmiChart"></canvas>
+                    </div>
+
                     <div class="table-wrapper">
                         <table class="history-table">
                             <thead>
@@ -401,7 +449,8 @@
                             </thead>
                             <tbody id="historyBody">
                                 <tr>
-                                    <td colspan="8" class="empty-state">No records yet. Calculate your BMI to get started!</td>
+                                    <td colspan="8" class="empty-state">No records yet. Calculate your BMI to get
+                                        started!</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -414,10 +463,11 @@
                 <h2 class="section-title">🏃‍♂️ Personalized Routine & Diet</h2>
                 <div class="routine-container">
                     <div class="routine-tabs">
-                        <button type="button" class="tab-btn active" onclick="switchRoutineTab('exercises')">Exercise Routine</button>
+                        <button type="button" class="tab-btn active" onclick="switchRoutineTab('exercises')">Exercise
+                            Routine</button>
                         <button type="button" class="tab-btn" onclick="switchRoutineTab('diet')">Diet Plan</button>
                     </div>
-                    
+
                     <!-- Exercise Routine -->
                     <div id="exercisesTab" class="routine-tab-content">
                         <div class="routine-options">
@@ -448,11 +498,12 @@
                                     <label for="weightTraining">Weight Training</label>
                                 </div>
                             </div>
-                            <button type="button" class="btn btn-gradient" onclick="generateRoutine()">Generate Routine</button>
+                            <button type="button" class="btn btn-gradient" onclick="generateRoutine()">Generate
+                                Routine</button>
                         </div>
                         <div id="routineResult" class="routine-result"></div>
                     </div>
-                    
+
                     <!-- Diet Plan -->
                     <div id="dietTab" class="routine-tab-content" style="display: none;">
                         <div class="diet-preferences">
@@ -470,9 +521,45 @@
                                 <label for="allergies">Allergies/Restrictions</label>
                                 <input type="text" id="allergies" name="allergies" placeholder="e.g., nuts, dairy">
                             </div>
-                            <button type="button" class="btn btn-gradient" onclick="generateDietPlan()">Generate Diet Plan</button>
+                            <button type="button" class="btn btn-gradient" onclick="generateDietPlan()">Generate Diet
+                                Plan</button>
                         </div>
                         <div id="dietResult" class="diet-result"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Water Intake Tracker (NEW FEATURE) -->
+            <section id="waterSection" class="dashboard-section">
+                <h2 class="section-title">💧 Daily Water Tracker</h2>
+                <div class="water-container">
+                    <div class="water-progress">
+                        <div class="water-text">
+                            <span id="waterTotal">0</span> / <span id="waterGoal">2000</span> ml
+                        </div>
+                        <div class="water-bar-container">
+                            <div class="water-bar-fill" id="waterBarFill"></div>
+                        </div>
+                    </div>
+
+                    <div class="water-actions">
+                        <h3>Add Water 🌊</h3>
+                        <div class="water-buttons">
+                            <button class="btn btn-outline water-btn" onclick="addWater(250)">
+                                🥛 250ml
+                            </button>
+                            <button class="btn btn-outline water-btn" onclick="addWater(500)">
+                                💧 500ml
+                            </button>
+                            <button class="btn btn-outline water-btn" onclick="addWater(1000)">
+                                🚰 1000ml
+                            </button>
+                        </div>
+                        <div class="water-custom mt-3">
+                            <input type="number" id="customWaterAmount" class="form-control"
+                                placeholder="Custom amount (ml)" min="1">
+                            <button class="btn btn-gradient mt-2" onclick="addCustomWater()">Add</button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -507,7 +594,8 @@
                                 </div>
                             </div>
                         </div>
-                        <button type="button" class="btn btn-gradient" onclick="sendEmailReports()">Send Reports</button>
+                        <button type="button" class="btn btn-gradient" onclick="sendEmailReports()">Send
+                            Reports</button>
                     </div>
                     <div id="emailStatus" class="email-status"></div>
                 </div>
@@ -515,7 +603,10 @@
         </div>
     </div>
 
+    <!-- Markdown Parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
-</html>
 
+</html>

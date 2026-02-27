@@ -6,8 +6,11 @@ import os
 import hashlib
 import base64
 import smtplib
+from appwrite.client import Client as AppwriteClient
+from appwrite.services.databases import Databases
+from appwrite.id import ID
+from appwrite.query import Query
 from datetime import datetime
-from bson.objectid import ObjectId
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -17,8 +20,8 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
-from pymongo import MongoClient
-from pymongo.errors import DuplicateKeyError
+# from pymongo import MongoClient
+# from pymongo.errors import DuplicateKeyError
 import google.generativeai as genai
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -55,26 +58,31 @@ CORS(app, supports_credentials=True, resources={
     }
 })
 
-# MongoDB Connection
-MONGODB_URI = os.getenv("MONGODB_URI")
-if not MONGODB_URI:
-    raise ValueError("MONGODB_URI not found in environment variables")
+# Appwrite Connection
+APPWRITE_ENDPOINT = os.getenv("APPWRITE_ENDPOINT")
+APPWRITE_PROJECT_ID = os.getenv("APPWRITE_PROJECT_ID")
+APPWRITE_API_KEY = os.getenv("APPWRITE_API_KEY")
+APPWRITE_WATER_COLLECTION_ID = os.getenv("APPWRITE_WATER_COLLECTION_ID")
 
-client = MongoClient(MONGODB_URI)
-db = client["upgraded_lifestyle"]
-users_collection = db["users"]
-bmi_records_collection = db["bmi_records"]
-analyzed_reports_collection = db["analyzed_reports"]
-user_goals_collection = db["user_goals"]
-chat_messages_collection = db["chat_messages"]
+if not all([APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_API_KEY]):
+    raise ValueError("Appwrite credentials not found in environment variables")
 
-# Create indexes for better query performance
-users_collection.create_index("username", unique=True)
-users_collection.create_index("email", unique=True)
-bmi_records_collection.create_index("user_id")
-analyzed_reports_collection.create_index("user_id")
-user_goals_collection.create_index("user_id")
-chat_messages_collection.create_index("user_id")
+client = AppwriteClient()
+client.set_endpoint(APPWRITE_ENDPOINT)
+client.set_project(APPWRITE_PROJECT_ID)
+client.set_key(APPWRITE_API_KEY)
+
+databases = Databases(client)
+
+# Appwrite IDs
+DATABASE_ID = os.getenv("APPWRITE_DATABASE_ID", "default")
+USERS_COLLECTION_ID = os.getenv("APPWRITE_USERS_COLLECTION_ID", "users")
+BMI_RECORDS_COLLECTION_ID = os.getenv("APPWRITE_BMI_RECORDS_COLLECTION_ID", "bmi_records")
+REPORTS_COLLECTION_ID = os.getenv("APPWRITE_REPORTS_COLLECTION_ID", "analyzed_reports")
+MESSAGES_COLLECTION_ID = os.getenv("APPWRITE_MESSAGES_COLLECTION_ID", "chat_messages")
+GOALS_COLLECTION_ID = os.getenv("APPWRITE_GOALS_COLLECTION_ID", "user_goals")
+
+# Use Appwrite collections instead of local SQLite/Supabase
 
 # Configure Gemini API
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
@@ -186,15 +194,21 @@ def register():
         hashed_password = hash_password(password)
         
         try:
-            # Insert into MongoDB
-            result = users_collection.insert_one({
-                'username': username,
-                'email': email,
-                'password': hashed_password,
-                'created_at': datetime.now()
-            })
+            # Create a unique ID for the user
+            user_id = ID.unique()
             
-            user_id = str(result.inserted_id)
+            # Insert into Appwrite
+            response = databases.create_document(
+                database_id=DATABASE_ID,
+                collection_id=USERS_COLLECTION_ID,
+                document_id=user_id,
+                data={
+                    'username': username,
+                    'email': email,
+                    'password': hashed_password,
+                    'created_at': datetime.now().isoformat()
+                }
+            )
             
             # Create session
             session['user_id'] = user_id
@@ -202,10 +216,18 @@ def register():
             
             return jsonify({'success': True, 'message': 'Registration successful'})
             
-        except DuplicateKeyError:
-            return jsonify({'success': False, 'error': 'Username or email already exists'}), 400
+        except Exception as e:
+            # Handle potential duplicate keys or other errors
+            import traceback
+            traceback.print_exc()
+            error_msg = str(e)
+            if "duplicate" in error_msg.lower() or "exists" in error_msg.lower():
+                return jsonify({'success': False, 'error': 'Username or email already exists'}), 400
+            return jsonify({'success': False, 'error': error_msg}), 500
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/login', methods=['POST'])
@@ -222,22 +244,27 @@ def login():
         # Hash password
         hashed_password = hash_password(password)
         
-        # Find user in MongoDB
-        user = users_collection.find_one({
-            'username': username,
-            'password': hashed_password
-        })
+        # Find user in Appwrite
+        response = databases.list_documents(
+            database_id=DATABASE_ID,
+            collection_id=USERS_COLLECTION_ID,
+            queries=[
+                Query.equal("username", username),
+                Query.equal("password", hashed_password)
+            ]
+        )
         
-        if user:
+        if response['total'] > 0:
+            user = response['documents'][0]
             # Set session variables
             session.permanent = True
-            session['user_id'] = str(user['_id'])
+            session['user_id'] = user['$id']
             session['username'] = user['username']
             return jsonify({
                 'success': True,
                 'message': 'Login successful',
                 'user': {
-                    'id': str(user['_id']),
+                    'id': user['$id'],
                     'username': user['username']
                 }
             })
@@ -269,14 +296,16 @@ def check_auth():
 def user_profile():
     """Get logged-in user profile"""
     try:
-        user = users_collection.find_one({'_id': ObjectId(session['user_id'])})
+        response = databases.get_document(
+            database_id=DATABASE_ID,
+            collection_id=USERS_COLLECTION_ID,
+            document_id=session['user_id']
+        )
         
-        if user:
-            return jsonify({
-                'username': user['username'],
-                'email': user['email']
-            })
-        return jsonify({'error': 'User not found'}), 404
+        return jsonify({
+            'username': response['username'],
+            'email': response['email']
+        })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -312,25 +341,32 @@ def calculate_bmi():
         category = get_bmi_category(bmi)
         icon = get_bmi_icon(category)
         
-        # Save to MongoDB
-        result = bmi_records_collection.insert_one({
-            'user_id': ObjectId(session['user_id']),
-            'name': name,
-            'age': age,
-            'sex': sex,
-            'height': height,
-            'weight': weight,
-            'bmi': bmi,
-            'category': category,
-            'created_at': datetime.now()
-        })
+        # Save to Appwrite
+        response = databases.create_document(
+            database_id=DATABASE_ID,
+            collection_id=BMI_RECORDS_COLLECTION_ID,
+            document_id=ID.unique(),
+            data={
+                'user_id': session['user_id'],
+                'name': name,
+                'age': age,
+                'sex': sex,
+                'height': height,
+                'weight': weight,
+                'bmi': bmi,
+                'category': category,
+                'created_at': datetime.now().isoformat()
+            }
+        )
+        
+        record_id = response['$id']
         
         return jsonify({
             'bmi': bmi,
             'category': category,
             'icon': icon,
             'saved': True,
-            'record_id': str(result.inserted_id)
+            'record_id': record_id
         })
         
     except ValueError:
@@ -343,14 +379,19 @@ def calculate_bmi():
 def bmi_history():
     """Get all BMI records for logged-in user"""
     try:
-        records = list(bmi_records_collection.find({
-            'user_id': ObjectId(session['user_id'])
-        }).sort('created_at', -1))
+        response = databases.list_documents(
+            database_id=DATABASE_ID,
+            collection_id=BMI_RECORDS_COLLECTION_ID,
+            queries=[
+                Query.equal("user_id", session['user_id']),
+                Query.order_desc("created_at")
+            ]
+        )
         
         history = []
-        for record in records:
+        for record in response['documents']:
             history.append({
-                'id': str(record['_id']),
+                'id': record['$id'],
                 'name': record['name'],
                 'age': record['age'],
                 'sex': record['sex'],
@@ -358,7 +399,7 @@ def bmi_history():
                 'weight': record['weight'],
                 'bmi': record['bmi'],
                 'category': record['category'],
-                'created_at': record['created_at'].isoformat() if isinstance(record['created_at'], datetime) else str(record['created_at'])
+                'created_at': record['created_at']
             })
         
         return jsonify({'records': history})
@@ -371,14 +412,20 @@ def bmi_history():
 def delete_record(record_id):
     """Delete a specific BMI record"""
     try:
-        result = bmi_records_collection.delete_one({
-            '_id': ObjectId(record_id),
-            'user_id': ObjectId(session['user_id'])
-        })
+        # Verify ownership before deleting
+        record = databases.get_document(
+            database_id=DATABASE_ID,
+            collection_id=BMI_RECORDS_COLLECTION_ID,
+            document_id=record_id
+        )
+        if record['user_id'] != session['user_id']:
+            return jsonify({'error': 'Unauthorized'}), 401
         
-        if result.deleted_count == 0:
-            return jsonify({'error': 'Record not found'}), 404
-        
+        databases.delete_document(
+            database_id=DATABASE_ID,
+            collection_id=BMI_RECORDS_COLLECTION_ID,
+            document_id=record_id
+        )
         return jsonify({'success': True})
         
     except Exception as e:
@@ -395,13 +442,18 @@ def aurora_chat():
         if not message:
             return jsonify({'error': 'Message is required'}), 400
         
-        # Save user message to chat history
-        chat_messages_collection.insert_one({
-            'user_id': ObjectId(session['user_id']),
-            'role': 'user',
-            'message': message,
-            'created_at': datetime.now()
-        })
+        # Save user message to Appwrite
+        databases.create_document(
+            database_id=DATABASE_ID,
+            collection_id=MESSAGES_COLLECTION_ID,
+            document_id=ID.unique(),
+            data={
+                'user_id': session['user_id'],
+                'role': 'user',
+                'message': message,
+                'created_at': datetime.now().isoformat()
+            }
+        )
         
         # Try Gemini API first
         if model:
@@ -422,7 +474,16 @@ IMPORTANT: About the developer/owner:
 User: {message}
 Aurora:"""
                 else:
-                    prompt = f"""You are Aurora, a friendly and helpful AI wellness assistant. You provide helpful, encouraging advice about BMI, health, fitness, nutrition, and wellness. Keep responses concise (2-3 sentences max) and supportive. Be conversational and helpful.
+                    prompt = f"""You are Aurora, a friendly and helpful AI wellness assistant. You provide helpful, encouraging advice about BMI, health, fitness, nutrition, and wellness.
+
+**FORMATTING RULES (VERY IMPORTANT):**
+- Use **bold** for key terms
+- Use bullet points (•) for lists
+- Keep paragraphs SHORT (2-3 sentences max)
+- Use line breaks between sections
+- Add relevant emoji icons
+- Never write walls of text
+
 User: {message}
 Aurora:"""
                 
@@ -434,13 +495,18 @@ Aurora:"""
                 
                 print(f"✓ Gemini API response received: {ai_response[:100]}...")
                 
-                # Save bot response to chat history
-                chat_messages_collection.insert_one({
-                    'user_id': ObjectId(session['user_id']),
-                    'role': 'bot',
-                    'message': ai_response,
-                    'created_at': datetime.now()
-                })
+                # Save bot response to Appwrite (truncate to fit)
+                databases.create_document(
+                    database_id=DATABASE_ID,
+                    collection_id=MESSAGES_COLLECTION_ID,
+                    document_id=ID.unique(),
+                    data={
+                        'user_id': session['user_id'],
+                        'role': 'bot',
+                        'message': ai_response[:4900],
+                        'created_at': datetime.now().isoformat()
+                    }
+                )
                 
                 return jsonify({
                     'response': ai_response,
@@ -463,13 +529,18 @@ Aurora:"""
         
         fallback = random.choice(fallback_responses)
         
-        # Save fallback response
-        chat_messages_collection.insert_one({
-            'user_id': ObjectId(session['user_id']),
-            'role': 'bot',
-            'message': fallback,
-            'created_at': datetime.now()
-        })
+        # Save fallback response to Appwrite
+        databases.create_document(
+            database_id=DATABASE_ID,
+            collection_id=MESSAGES_COLLECTION_ID,
+            document_id=ID.unique(),
+            data={
+                'user_id': session['user_id'],
+                'role': 'bot',
+                'message': fallback,
+                'created_at': datetime.now().isoformat()
+            }
+        )
         
         return jsonify({
             'response': fallback,
@@ -512,47 +583,83 @@ def analyze_image():
             img = Image.open(filepath)
             
             # Create analysis prompt
-            analysis_prompt = """Analyze this BMI report or health-related document image. Provide:
-1. Overview: A brief summary of what you see in this report
-2. Key Findings: Important numbers, values, or data points
-3. Analysis: What these findings mean
-4. Suggestions: Actionable health recommendations based on the report
-5. Report Type: What kind of report this appears to be (BMI report, lab results, etc.)
-Format your response clearly with these sections."""
+            analysis_prompt = """Analyze this BMI report or health-related document image. Format your response in clean, readable Markdown:
+
+## Overview
+A brief summary of what you see in this report
+
+## Key Findings
+- Important numbers, values, or data points (use bullet points)
+
+## Analysis
+What these findings mean (keep it concise)
+
+## Suggestions
+- Actionable health recommendations (use bullet points)
+
+## Report Type
+What kind of report this appears to be
+
+Keep each section short and scannable. Use emoji where helpful."""
             
             response = vision_model.generate_content([analysis_prompt, img])
-            analysis_text = response.text.strip()
             
-            # Extract sections from analysis
+            try:
+                analysis_text = response.text.strip()
+            except ValueError:
+                # If the response doesn't contain valid text (e.g. blocked by safety filters)
+                return jsonify({'error': 'Image analysis was blocked or returned empty. Please try a different, clearer image.'}), 400
+            
+            
+            import re
+            
+            # Extract sections from analysis using regex to handle markdown variations
             overview = ""
             suggestions = ""
             report_type = "Unknown"
             
-            if "Overview:" in analysis_text:
-                parts = analysis_text.split("Overview:")
-                if len(parts) > 1:
-                    overview = parts[1].split("Key Findings:")[0].strip() if "Key Findings:" in parts[1] else parts[1][:200].strip()
+            overview_match = re.search(r'##?\s*Overview\n(.*?)(?=##|\Z)', analysis_text, re.DOTALL | re.IGNORECASE)
+            if overview_match:
+                overview = overview_match.group(1).strip()
+                
+            suggestions_match = re.search(r'##?\s*Suggestions\n(.*?)(?=##|\Z)', analysis_text, re.DOTALL | re.IGNORECASE)
+            if suggestions_match:
+                suggestions = suggestions_match.group(1).strip()[:1000]
+                
+            type_match = re.search(r'##?\s*Report Type\n(.*?)(?=##|\Z)', analysis_text, re.DOTALL | re.IGNORECASE)
+            if type_match:
+                report_type = type_match.group(1).strip().split('\n')[0][:250]
+                
+            if not overview:
+                overview = analysis_text[:500] + "..."
             
-            if "Suggestions:" in analysis_text:
-                suggestions = analysis_text.split("Suggestions:")[1].strip()[:500]
+            # Truncate fields to fit Appwrite string limits
+            analysis_text = analysis_text[:4900] if analysis_text else ''
+            suggestions = suggestions[:4900] if suggestions else ''
+            overview = overview[:4900] if overview else ''
+            report_type = report_type[:250] if report_type else 'Unknown'
             
-            if "Report Type:" in analysis_text:
-                report_type = analysis_text.split("Report Type:")[1].strip().split("\n")[0]
+            # Save analysis to Appwrite
+            response = databases.create_document(
+                database_id=DATABASE_ID,
+                collection_id=REPORTS_COLLECTION_ID,
+                document_id=ID.unique(),
+                data={
+                    'user_id': session['user_id'],
+                    'image_filename': filename[:250],
+                    'analysis_text': analysis_text,
+                    'suggestions': suggestions,
+                    'overview': overview,
+                    'report_type': report_type,
+                    'created_at': datetime.now().isoformat()
+                }
+            )
             
-            # Save analysis to MongoDB
-            result = analyzed_reports_collection.insert_one({
-                'user_id': ObjectId(session['user_id']),
-                'image_filename': filename,
-                'analysis_text': analysis_text,
-                'suggestions': suggestions,
-                'overview': overview,
-                'report_type': report_type,
-                'created_at': datetime.now()
-            })
+            report_id = response['$id']
             
             return jsonify({
                 'success': True,
-                'report_id': str(result.inserted_id),
+                'report_id': str(report_id),
                 'analysis': analysis_text,
                 'overview': overview,
                 'suggestions': suggestions,
@@ -574,20 +681,25 @@ Format your response clearly with these sections."""
 def get_analyzed_reports():
     """Get all analyzed reports for user"""
     try:
-        reports = list(analyzed_reports_collection.find({
-            'user_id': ObjectId(session['user_id'])
-        }).sort('created_at', -1))
+        response = databases.list_documents(
+            database_id=DATABASE_ID,
+            collection_id=REPORTS_COLLECTION_ID,
+            queries=[
+                Query.equal("user_id", session['user_id']),
+                Query.order_desc("created_at")
+            ]
+        )
         
         result = []
-        for report in reports:
+        for report in response['documents']:
             result.append({
-                'id': str(report['_id']),
+                'id': report['$id'],
                 'image_filename': report['image_filename'],
                 'analysis': report['analysis_text'],
                 'suggestions': report['suggestions'],
                 'overview': report['overview'],
                 'report_type': report['report_type'],
-                'created_at': report['created_at'].isoformat() if isinstance(report['created_at'], datetime) else str(report['created_at'])
+                'created_at': report['created_at']
             })
         
         return jsonify({'reports': result})
@@ -599,18 +711,22 @@ def get_analyzed_reports():
 def delete_analyzed_report(report_id):
     """Delete a specific analyzed report"""
     try:
-        report = analyzed_reports_collection.find_one({
-            '_id': ObjectId(report_id),
-            'user_id': ObjectId(session['user_id'])
-        })
+        # Check if report exists and belongs to user
+        report = databases.get_document(
+            database_id=DATABASE_ID,
+            collection_id=REPORTS_COLLECTION_ID,
+            document_id=report_id
+        )
         
-        if not report:
-            return jsonify({'error': 'Report not found'}), 404
-        
+        if report['user_id'] != session['user_id']:
+            return jsonify({'error': 'Unauthorized'}), 401
+            
         # Delete database record
-        analyzed_reports_collection.delete_one({
-            '_id': ObjectId(report_id)
-        })
+        databases.delete_document(
+            database_id=DATABASE_ID,
+            collection_id=REPORTS_COLLECTION_ID,
+            document_id=report_id
+        )
         
         # Attempt to delete uploaded file
         try:
@@ -630,17 +746,22 @@ def delete_analyzed_report(report_id):
 def get_chat_history():
     """Return chat messages for the logged-in user"""
     try:
-        messages_list = list(chat_messages_collection.find({
-            'user_id': ObjectId(session['user_id'])
-        }).sort('created_at', 1))
+        response = databases.list_documents(
+            database_id=DATABASE_ID,
+            collection_id=MESSAGES_COLLECTION_ID,
+            queries=[
+                Query.equal("user_id", session['user_id']),
+                Query.order_asc("created_at")
+            ]
+        )
         
         messages = []
-        for msg in messages_list:
+        for msg in response['documents']:
             messages.append({
-                'id': str(msg['_id']),
+                'id': msg['$id'],
                 'role': msg['role'],
                 'message': msg['message'],
-                'created_at': msg['created_at'].isoformat() if isinstance(msg['created_at'], datetime) else str(msg['created_at'])
+                'created_at': msg['created_at']
             })
         return jsonify({'messages': messages})
     except Exception as e:
@@ -657,12 +778,18 @@ def save_chat_message():
         if not role or not message:
             return jsonify({'error': 'role and message are required'}), 400
         
-        chat_messages_collection.insert_one({
-            'user_id': ObjectId(session['user_id']),
-            'role': role,
-            'message': message,
-            'created_at': datetime.now()
-        })
+        databases.create_document(
+            database_id=DATABASE_ID,
+            collection_id=MESSAGES_COLLECTION_ID,
+            document_id=ID.unique(),
+            data={
+                'user_id': session['user_id'],
+                'role': role,
+                'message': message,
+                'created_at': datetime.now().isoformat()
+            }
+        )
+        
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -672,9 +799,18 @@ def save_chat_message():
 def clear_chat():
     """Clear all chat messages for the logged-in user"""
     try:
-        chat_messages_collection.delete_many({
-            'user_id': ObjectId(session['user_id'])
-        })
+        # Appwrite doesn't have delete_many, so we list and delete
+        response = databases.list_documents(
+            database_id=DATABASE_ID,
+            collection_id=MESSAGES_COLLECTION_ID,
+            queries=[Query.equal("user_id", session['user_id'])]
+        )
+        for doc in response['documents']:
+            databases.delete_document(
+                database_id=DATABASE_ID,
+                collection_id=MESSAGES_COLLECTION_ID,
+                document_id=doc['$id']
+            )
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -804,40 +940,54 @@ def generate_report():
         report_id = data.get('report_id')
         
         # Get user data
-        user = users_collection.find_one({'_id': ObjectId(session['user_id'])})
+        user = databases.get_document(
+            database_id=DATABASE_ID,
+            collection_id=USERS_COLLECTION_ID,
+            document_id=session['user_id']
+        )
+        
         user_data = {'username': user['username'], 'email': user['email']}
         bmi_data = None
         analysis_data = None
         
-        # Get BMI record if provided
         if bmi_record_id:
-            record = bmi_records_collection.find_one({
-                '_id': ObjectId(bmi_record_id),
-                'user_id': ObjectId(session['user_id'])
-            })
-            if record:
-                bmi_data = {
-                    'name': record['name'],
-                    'age': record['age'],
-                    'sex': record['sex'],
-                    'height': record['height'],
-                    'weight': record['weight'],
-                    'bmi': record['bmi'],
-                    'category': record['category']
-                }
+            try:
+                record = databases.get_document(
+                    database_id=DATABASE_ID,
+                    collection_id=BMI_RECORDS_COLLECTION_ID,
+                    document_id=bmi_record_id
+                )
+                if record['user_id'] == session['user_id']:
+                    bmi_data = {
+                        'name': record['name'],
+                        'age': record['age'],
+                        'sex': record['sex'],
+                        'height': record['height'],
+                        'weight': record['weight'],
+                        'bmi': record['bmi'],
+                        'category': record['category']
+                    }
+            except Exception as e:
+                print(f"Error fetching BMI record for PDF: {e}")
+                pass
         
         # Get analyzed report if provided
         if report_id:
-            analysis = analyzed_reports_collection.find_one({
-                '_id': ObjectId(report_id),
-                'user_id': ObjectId(session['user_id'])
-            })
-            if analysis:
-                analysis_data = {
-                    'overview': analysis.get('overview', ''),
-                    'suggestions': analysis.get('suggestions', ''),
-                    'report_type': analysis.get('report_type', '')
-                }
+            try:
+                analysis = databases.get_document(
+                    database_id=DATABASE_ID,
+                    collection_id=REPORTS_COLLECTION_ID,
+                    document_id=report_id
+                )
+                if analysis['user_id'] == session['user_id']:
+                    analysis_data = {
+                        'overview': analysis.get('overview', ''),
+                        'suggestions': analysis.get('suggestions', ''),
+                        'report_type': analysis.get('report_type', 'Unknown Report')
+                    }
+            except Exception as e:
+                print(f"Error fetching Report for PDF: {e}")
+                pass
         
         # Generate PDF
         pdf_buffer = generate_bmi_pdf(user_data, bmi_data, analysis_data)
@@ -864,7 +1014,12 @@ def send_report_email():
         report_id = data.get('report_id')
         
         # Get user email
-        user = users_collection.find_one({'_id': ObjectId(session['user_id'])})
+        user = databases.get_document(
+            database_id=DATABASE_ID,
+            collection_id=USERS_COLLECTION_ID,
+            document_id=session['user_id']
+        )
+        
         user_email = user['email']
         username = user['username']
         
@@ -874,43 +1029,83 @@ def send_report_email():
         
         # Get data
         if bmi_record_id:
-            record = bmi_records_collection.find_one({
-                '_id': ObjectId(bmi_record_id),
-                'user_id': ObjectId(session['user_id'])
-            })
-            if record:
-                bmi_data = {
-                    'name': record['name'],
-                    'age': record['age'],
-                    'sex': record['sex'],
-                    'height': record['height'],
-                    'weight': record['weight'],
-                    'bmi': record['bmi'],
-                    'category': record['category']
-                }
+            try:
+                record = databases.get_document(
+                    database_id=DATABASE_ID,
+                    collection_id=BMI_RECORDS_COLLECTION_ID,
+                    document_id=bmi_record_id
+                )
+                if record['user_id'] == session['user_id']:
+                    bmi_data = {
+                        'name': record['name'],
+                        'age': record['age'],
+                        'sex': record['sex'],
+                        'height': record['height'],
+                        'weight': record['weight'],
+                        'bmi': record['bmi'],
+                        'category': record['category']
+                    }
+            except:
+                pass
         
         if report_id:
-            analysis = analyzed_reports_collection.find_one({
-                '_id': ObjectId(report_id),
-                'user_id': ObjectId(session['user_id'])
-            })
-            if analysis:
-                analysis_data = {
-                    'overview': analysis.get('overview', ''),
-                    'suggestions': analysis.get('suggestions', ''),
-                    'report_type': analysis.get('report_type', '')
-                }
+            try:
+                analysis = databases.get_document(
+                    database_id=DATABASE_ID,
+                    collection_id=REPORTS_COLLECTION_ID,
+                    document_id=report_id
+                )
+                if analysis['user_id'] == session['user_id']:
+                    analysis_data = {
+                        'overview': analysis.get('overview', ''),
+                        'suggestions': analysis.get('suggestions', ''),
+                        'report_type': analysis.get('report_type', 'Unknown Report')
+                    }
+            except Exception as e:
+                print(f"Error fetching analysis for email: {e}")
+                pass
         
         # Generate PDF
         pdf_buffer = generate_bmi_pdf(user_data, bmi_data, analysis_data)
         
+        # Send email via Gmail SMTP
+        email_user = os.getenv('EMAIL_USER')
+        email_pass = os.getenv('EMAIL_PASS')
+        
+        if not email_user or not email_pass:
+            return jsonify({'error': 'Email credentials not configured on server'}), 500
+        
+        msg = MIMEMultipart()
+        msg['From'] = email_user
+        msg['To'] = user_email
+        msg['Subject'] = f'Your BMI Health Report - Upgraded Lifestyle'
+        
+        body = f"""Hi {username},\n\nPlease find your personalized BMI Health Report attached.\n\nGenerated on: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}\n\nStay healthy!\n- Upgraded Lifestyle Team"""
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Attach PDF
+        pdf_attachment = MIMEBase('application', 'octet-stream')
+        pdf_attachment.set_payload(pdf_buffer.read())
+        encoders.encode_base64(pdf_attachment)
+        pdf_attachment.add_header(
+            'Content-Disposition',
+            f'attachment; filename=BMI_Report_{datetime.now().strftime("%Y%m%d")}.pdf'
+        )
+        msg.attach(pdf_attachment)
+        
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(email_user, email_pass)
+            server.send_message(msg)
+        
         return jsonify({
             'success': True,
-            'message': 'Report PDF generated. Email functionality requires SMTP configuration. PDF can be downloaded.',
-            'note': 'To enable email: Configure SMTP_SERVER, SMTP_PORT, SMTP_USER, SMTP_PASSWORD in .env'
+            'message': f'Report sent successfully to {user_email}!'
         })
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/progress-insights', methods=['GET'])
@@ -918,10 +1113,17 @@ def send_report_email():
 def get_progress_insights():
     """Get unique progress insights and trends"""
     try:
-        records = list(bmi_records_collection.find({
-            'user_id': ObjectId(session['user_id'])
-        }).sort('created_at', -1).limit(10))
+        response = databases.list_documents(
+            database_id=DATABASE_ID,
+            collection_id=BMI_RECORDS_COLLECTION_ID,
+            queries=[
+                Query.equal("user_id", session['user_id']),
+                Query.order_desc("created_at"),
+                Query.limit(10)
+            ]
+        )
         
+        records = response['documents']
         insights = {
             'total_records': len(records),
             'latest_bmi': records[0]['bmi'] if records else None,
@@ -961,12 +1163,34 @@ def generate_routine():
 - Goal: {goal}
 - Activity Level: {activity_level}
 - Preferred activities: {', '.join(activities)}
-The routine should include:
-1. Weekly schedule with specific activities
-2. Duration and intensity for each activity
-3. Rest periods
-4. Safety precautions
-5. Progress tracking tips"""
+
+**FORMAT YOUR RESPONSE EXACTLY LIKE THIS (use Markdown):**
+
+## 📅 Weekly Exercise Schedule
+
+### Monday - [Focus Area]
+• **Exercise Name** — Duration, Intensity
+• **Exercise Name** — Duration, Intensity
+
+### Tuesday - [Focus Area]
+• **Exercise Name** — Duration, Intensity
+
+(Continue for each day...)
+
+### 🚨 Sunday - Active Rest
+• Light stretching or yoga
+
+---
+
+## ⚠️ Safety Tips
+• Tip 1
+• Tip 2
+
+## 📊 Progress Tracking
+• How to measure success
+• When to increase intensity
+
+Keep it concise, actionable, and encouraging. Use emoji icons."""
             
             response = model.generate_content(prompt)
             return jsonify({
@@ -999,13 +1223,42 @@ def generate_diet():
 - Goal: {goal}
 - Diet Type: {diet_type}
 - Allergies/Restrictions: {allergies}
-The plan should include:
-1. Daily calorie target
-2. Macronutrient distribution
-3. Sample meal plan
-4. Foods to avoid
-5. Recommended supplements
-6. Meal timing suggestions"""
+
+**FORMAT YOUR RESPONSE EXACTLY LIKE THIS (use Markdown):**
+
+## 🍽 Daily Nutrition Plan
+
+### 🎯 Daily Targets
+| Nutrient | Amount |
+|---|---|
+| Calories | X kcal |
+| Protein | X g |
+| Carbs | X g |
+| Fat | X g |
+
+### 🌅 Breakfast (X AM)
+• **Meal option 1** — Brief description
+• **Meal option 2** — Brief description
+
+### 🌞 Lunch (X PM)
+• **Meal option 1** — Brief description
+
+### 🌙 Dinner (X PM)
+• **Meal option 1** — Brief description
+
+### 🍎 Snacks
+• Snack options
+
+---
+
+## ❌ Foods to Avoid
+• Item 1
+• Item 2
+
+## 💊 Recommended Supplements
+• Supplement + reason
+
+Keep it concise and actionable. Use emoji icons."""
             
             response = model.generate_content(prompt)
             return jsonify({
@@ -1019,6 +1272,71 @@ The plan should include:
         return jsonify({'error': str(e)}), 500
 
 # Page routes
+# ==========================================
+# Water Intake Tracker Routes
+# ==========================================
+
+@app.route('/api/water-logs', methods=['GET'])
+@login_required
+def get_water_logs():
+    try:
+        # Get today's date string (YYYY-MM-DD format)
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        response = databases.list_documents(
+            database_id=DATABASE_ID,
+            collection_id=APPWRITE_WATER_COLLECTION_ID,
+            queries=[
+                Query.equal('user_id', session['user_id']),
+                Query.equal('date', today)
+            ]
+        )
+        
+        # Calculate total
+        total_ml = sum(doc['amount_ml'] for doc in response['documents'])
+        
+        return jsonify({
+            'success': True,
+            'total_ml': total_ml,
+            'logs': response['documents']
+        })
+    except Exception as e:
+        print(f"Error fetching water logs: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/water-logs', methods=['POST'])
+@login_required
+def add_water_log():
+    try:
+        data = request.json
+        amount = int(data.get('amount_ml', 0))
+        
+        if amount <= 0:
+            return jsonify({'error': 'Invalid amount'}), 400
+            
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        response = databases.create_document(
+            database_id=DATABASE_ID,
+            collection_id=APPWRITE_WATER_COLLECTION_ID,
+            document_id=ID.unique(),
+            data={
+                'user_id': session['user_id'],
+                'amount_ml': amount,
+                'date': today,
+                'created_at': datetime.now().isoformat()
+            }
+        )
+        
+        return jsonify({'success': True, 'log': response})
+    except Exception as e:
+        print(f"Error saving water log: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ==========================================
+# Page Routes
+# ==========================================
+
 @app.route('/profile')
 @login_required
 def profile():
@@ -1064,31 +1382,12 @@ def ai_bmi_suggestions():
             return jsonify({'error': 'AI model not available'}), 500
         
         try:
-            prompt = f"""As Aurora, provide personalized health suggestions for someone with:
-- BMI: {bmi}
-- Category: {category}
+            prompt = f"""As Aurora, provide a brief, friendly, and actionable personalized health suggestion for someone with:
+- BMI: {bmi} ({category})
 - Health Goal: {goal}
 - Activity Level: {activity_level}
-Format your response like this:
-1. Initial Assessment
-2. Diet Recommendations:
-   - Specific foods to include/avoid
-   - Meal timing suggestions
-   - Calorie guidance (if appropriate)
-3. Exercise Plan:
-   - Types of exercises suited for their BMI and activity level
-   - Frequency recommendations
-   - Safety precautions
-4. Lifestyle Adjustments:
-   - Sleep recommendations
-   - Stress management
-   - Daily habits to build
-5. Progress Tracking:
-   - How to measure success
-   - When to adjust the plan
-   - Warning signs to watch for
 
-Keep your tone encouraging and supportive. Focus on sustainable, healthy changes rather than quick fixes."""
+Keep your response conversational and VERY SHORT (max 3-4 sentences total). Do not provide a long list or comprehensive plan. Just 1 or 2 specific pieces of advice or encouragement based on their profile. Use emojis where helpful."""
             
             response = model.generate_content(prompt)
             suggestions = response.text.strip()
@@ -1103,26 +1402,7 @@ Keep your tone encouraging and supportive. Focus on sustainable, healthy changes
         except Exception as e:
             print(f"Gemini API error: {e}")
             
-            fallback_suggestions = f"""Based on your BMI of {bmi} in the {category} category:
-1. Initial Assessment:
-   Your BMI indicates {category.lower()} status. Let's focus on gradual, sustainable changes.
-2. Diet Recommendations:
-   - Maintain a balanced diet with whole foods
-   - Stay hydrated with plenty of water
-   - Consider consulting a nutritionist for personalized advice
-3. Exercise Plan:
-   - Start with activities you enjoy
-   - Begin gradually and increase intensity over time
-   - Listen to your body and rest when needed
-4. Lifestyle Adjustments:
-   - Aim for 7-8 hours of quality sleep
-   - Practice stress management
-   - Build healthy daily routines
-5. Progress Tracking:
-   - Monitor your BMI regularly
-   - Keep a food and exercise journal
-   - Celebrate small victories
-Remember, health is a journey, not a destination. I'm here to support you!"""
+            fallback_suggestions = f"""You're doing great with a BMI of {bmi} ({category.lower()})! Focus on sustainable, gradual changes that fit your lifestyle. Maintain a balanced diet, stay hydrated, and try to get a bit of movement every day. Remember, consistency is the key to reaching your goals! 😊"""
             
             return jsonify({
                 'success': True,
@@ -1143,14 +1423,19 @@ def save_routine():
         activities = data.get('activities', [])
         target_weight = data.get('target_weight')
         
-        user_goals_collection.insert_one({
-            'user_id': ObjectId(session['user_id']),
-            'goal_type': goal_type,
-            'target_value': target_weight,
-            'status': 'active',
-            'activities': activities,
-            'created_at': datetime.now()
-        })
+        databases.create_document(
+            database_id=DATABASE_ID,
+            collection_id=GOALS_COLLECTION_ID,
+            document_id=ID.unique(),
+            data={
+                'user_id': session['user_id'],
+                'goal_type': goal_type,
+                'target_value': float(target_weight) if target_weight else 0.0,
+                'status': 'active',
+                'activities': ','.join(activities) if isinstance(activities, list) else str(activities),
+                'created_at': datetime.now().isoformat()
+            }
+        )
         
         return jsonify({'success': True})
         
@@ -1167,15 +1452,13 @@ def email_report():
         email = data.get('email')
         
         # Configure email settings
-        smtp_server = os.getenv('SMTP_SERVER')
-        smtp_port = int(os.getenv('SMTP_PORT', 587))
-        smtp_user = os.getenv('SMTP_USER')
-        smtp_password = os.getenv('SMTP_PASSWORD')
+        email_user = os.getenv('EMAIL_USER')
+        email_pass = os.getenv('EMAIL_PASS')
         
-        if not all([smtp_server, smtp_port, smtp_user, smtp_password]):
+        if not email_user or not email_pass:
             return jsonify({
                 'success': False,
-                'error': 'Email configuration missing. Check environment variables.'
+                'error': 'Email credentials not configured on server.'
             }), 500
         
         # Generate PDF
@@ -1187,11 +1470,11 @@ def email_report():
         
         # Create email
         msg = MIMEMultipart()
-        msg['From'] = smtp_user
+        msg['From'] = email_user
         msg['To'] = email
         msg['Subject'] = f'Your {report_type} Report from Upgraded Lifestyle'
         
-        body = "Please find your requested report attached."
+        body = f"Please find your requested {report_type} report attached.\n\nStay healthy!\n- Upgraded Lifestyle"
         msg.attach(MIMEText(body, 'plain'))
         
         # Add PDF attachment
@@ -1204,16 +1487,17 @@ def email_report():
         )
         msg.attach(pdf_attachment)
         
-        # Send email
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
+        # Send email via Gmail SMTP
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
-            server.login(smtp_user, smtp_password)
+            server.login(email_user, email_pass)
             server.send_message(msg)
         
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'message': f'Report sent to {email}!'})
         
     except Exception as e:
-        print(f"Email error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

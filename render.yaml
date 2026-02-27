@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: upgraded-lifestyle-bmi
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: APPWRITE_ENDPOINT
+        sync: false
+      - key: APPWRITE_PROJECT_ID
+        sync: false
+      - key: APPWRITE_API_KEY
+        sync: false
+      - key: APPWRITE_DATABASE_ID
+        sync: false
+      - key: APPWRITE_USERS_COLLECTION_ID
+        sync: false
+      - key: APPWRITE_BMI_RECORDS_COLLECTION_ID
+        sync: false
+      - key: APPWRITE_REPORTS_COLLECTION_ID
+        sync: false
+      - key: APPWRITE_MESSAGES_COLLECTION_ID
+        sync: false
+      - key: APPWRITE_GOALS_COLLECTION_ID
+        sync: false
+      - key: APPWRITE_WATER_COLLECTION_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: SECRET_KEY
+        sync: false
